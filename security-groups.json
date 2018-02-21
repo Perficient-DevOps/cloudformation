@@ -1,0 +1,168 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Security groups for DevOps-in-a-Box applications",
+  "Parameters": {
+    "accountTag": {
+      "Type": "String",
+      "Description": "Tag for naming",
+      "Default": "prft"
+    }
+  },
+  "Mappings": {},
+  "Resources": {
+    "JenkinsSlaveSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupName": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"jenkins-slave"]]},
+        "GroupDescription": "Jenkins slave",
+        "SecurityGroupEgress": [
+          {
+            "Description": "No outbound connections",
+            "CidrIp": "127.0.0.1/32",
+            "IpProtocol": "-1"
+          }
+        ],
+        "Tags": [{"Key": "Name","Value": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"jenkins-slave"]]}}],
+        "VpcId": {"Fn::ImportValue": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"vpc-id"]]}}
+      }
+    },
+    "UrbanCodeDeployAgentSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupName": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"ucd-agent"]]},
+        "GroupDescription": "UrbanCode Deploy agent",
+        "SecurityGroupEgress": [
+          {
+            "Description": "No outbound connections",
+            "CidrIp": "127.0.0.1/32",
+            "IpProtocol": "-1"
+          }
+        ],
+        "Tags": [{"Key": "Name","Value": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"ucd-agent"]]}}],
+        "VpcId": {"Fn::ImportValue": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"vpc-id"]]}}
+      }
+    },
+    "JenkinsMasterSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupName": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"jenkins-master"]]},
+        "GroupDescription": "Jenkins master",
+        "SecurityGroupIngress": [
+          {
+            "Description": "Jenkins web access",
+            "CidrIp": "0.0.0.0/0",
+            "IpProtocol": "tcp",
+            "FromPort": "8080",
+            "ToPort": "8080"
+          },
+          {
+            "Description": "JNLP agent connections",
+            "SourceSecurityGroupId": {"Ref": "JenkinsSlaveSecurityGroup"},
+            "IpProtocol": "tcp",
+            "FromPort": "50000",
+            "ToPort": "50000"
+          }
+        ],
+        "Tags": [{"Key": "Name","Value": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"jenkins-master"]]}}],
+        "VpcId": {"Fn::ImportValue": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"vpc-id"]]}}
+      }
+    },
+    "UrbanCodeDeployServerSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupName": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"ucd-server"]]},
+        "GroupDescription": "UrbanCode Deploy server",
+        "SecurityGroupIngress": [
+          {
+            "Description": "UCD web access",
+            "CidrIp": "0.0.0.0/0",
+            "IpProtocol": "tcp",
+            "FromPort": "443",
+            "ToPort": "443"
+          },
+          {
+            "Description": "JMS for UCD agents",
+            "SourceSecurityGroupId": {"Ref": "UrbanCodeDeployAgentSecurityGroup"},
+            "IpProtocol": "tcp",
+            "FromPort": "7918",
+            "ToPort": "7918"
+          }
+        ],
+        "Tags": [{"Key": "Name","Value": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"ucd-server"]]}}],
+        "VpcId": {"Fn::ImportValue": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"vpc-id"]]}}
+      }
+    },
+    "UranCodeReleaseSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupName": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"ucr"]]},
+        "GroupDescription": "UrbanCode Release server",
+        "SecurityGroupIngress": [
+          {
+            "Description": "UCR web access",
+            "CidrIp": "0.0.0.0/0",
+            "IpProtocol": "tcp",
+            "FromPort": "443",
+            "ToPort": "443"
+          }
+        ],
+        "Tags": [{"Key": "Name","Value": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"ucr"]]}}],
+        "VpcId": {"Fn::ImportValue": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"vpc-id"]]}}
+      }
+    },
+    "JenkinsSlaveFromJenkinsMaster": {
+      "Type": "AWS::EC2::SecurityGroupEgress",
+      "Properties": {
+        "GroupId": {"Ref": "JenkinsSlaveSecurityGroup"},
+        "DestinationSecurityGroupId": {"Ref": "JenkinsMasterSecurityGroup"},
+        "IpProtocol": "tcp",
+        "FromPort": "50000",
+        "ToPort": "50000"
+      }
+    },
+    "UrbanCodeDeployAgentFromUrbanCodeDeployServer": {
+      "Type": "AWS::EC2::SecurityGroupEgress",
+      "Properties": {
+        "GroupId": {"Ref": "UrbanCodeDeployAgentSecurityGroup"},
+        "DestinationSecurityGroupId": {"Ref": "UrbanCodeDeployServerSecurityGroup"},
+        "IpProtocol": "tcp",
+        "FromPort": "7918",
+        "ToPort": "7918"
+      }
+    },
+    "NexusSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupName": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"nexus"]]},
+        "GroupDescription": "Nexus",
+        "SecurityGroupIngress": [
+          {
+            "Description": "Nexus web access",
+            "CidrIp": "0.0.0.0/0",
+            "IpProtocol": "tcp",
+            "FromPort": "8081",
+            "ToPort": "8081"
+          }
+        ],
+        "SecurityGroupEgress": [
+          {
+            "Description": "Unrestricted TCP outbound 0-10000",
+            "CidrIp": "0.0.0.0/0",
+            "IpProtocol": "tcp",
+            "FromPort": "0",
+            "ToPort": "10000"
+          }
+        ],
+        "Tags": [{"Key": "Name","Value": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"nexus"]]}}],
+        "VpcId": {"Fn::ImportValue": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"vpc-id"]]}}
+      }      
+    }
+  },
+  "Outputs": {
+    "JenkinsMasterSecurityGroupID": {
+      "Description": "Jenkins master security group ID",
+      "Value": {"Ref": "JenkinsMasterSecurityGroup"},
+      "Export": {"Name": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"secgroup-jenkins-master-id"]]}}
+    }
+  }
+}

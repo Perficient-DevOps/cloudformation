@@ -1,0 +1,121 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "EC2 instances for Jenkins, UrbanCode, Nexus/Artifactory, and Sonatype - uses official CentOS and AWS Windows AMIs",
+  "Parameters": {
+    "accountTag": {
+      "Type": "String",
+      "Description": "Tag for naming",
+      "Default": "prft"
+    },
+    "keyPairName": {
+      "Type": "AWS::EC2::KeyPair::KeyName",
+      "Description": "Name of EC2 Key Pair"
+    },
+    "jenkinsInstanceType": {
+      "Type": "String",
+      "Description": "Instance type for Jenkins master",
+      "Default": "t2.small",
+      "AllowedValues": [
+        "t2.nano",
+        "t2.micro",
+        "t2.small",
+        "t2.medium",
+        "t2.large",
+        "t2.xlarge",
+        "t2.2xlarge"
+      ]
+    }
+  },
+  "Mappings": {
+    "ImageMap": {
+      "us-east-1": {
+        "LinuxAMI": "ami-ae7bfdb8",
+        "WindowsAMI": "ami-ce792ab4"
+      },
+      "us-east-2": {
+        "LinuxAMI": "ami-9cbf9bf9",
+        "WindowsAMI": "ami-fccce799"
+      },
+      "us-west-1": {
+        "LinuxAMI": "ami-7c280d1c",
+        "WindowsAMI": "ami-431f1f23"
+      },
+      "us-west-2": {
+        "LinuxAMI": "ami-0c2aba6c",
+        "WindowsAMI": "ami-2ea61356"
+      }
+    }
+  },
+  "Resources": {
+    "Jenkins": {
+      "Type": "AWS::EC2::Instance",
+      "Metadata": {
+        "AWS::CloudFormation::Init": {
+          "configSets": {
+            "Install": ["Install"],
+            "Configure": ["Configure"]
+          },
+          "Install": {
+            "commands": {},
+            "files": {},
+            "packages": {"yum": {"ansible": [], "git": []}},
+            "services": {}
+          },
+          "Configure": {
+            "commands": {
+              "1_git_clone": {
+                "command": "git clone https://github.com/Perficient-DevOps/devopsinabox-ansible"
+              },
+              "2_galaxy_reqs": {
+                "command": ""
+              }
+            }
+          }
+        }
+      },
+      "Properties": {
+        "AvailabilityZone": {"Fn::ImportValue": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"private-1-az"]]}},
+        "IamInstanceProfile": {"Fn::ImportValue": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"instance-profile"]]}},
+        "ImageId": {"Fn::FindInMap": ["ImageMap",{"Ref": "AWS::Region"},"LinuxAMI"]},
+        "InstanceType": {"Ref": "jenkinsInstanceType"},
+        "KeyName": {"Ref": "keyPairName"},
+        "SecurityGroupIds": [{"Fn::ImportValue": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"secgroup-jenkins-master-id"]]}}],
+        "SourceDestCheck": true,
+        "SubnetId": {"Fn::ImportValue": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"private-1-subnet-id"]]}},
+        "Tags": [{"Key": "Name","Value": {"Fn::Join": ["-", ["devopsinabox",{"Ref": "accountTag"},"jenkins-master"]]}}],
+        "UserData": {"Fn::Base64": {"Fn::Join": ["", [
+          "#!/bin/bash -xe\n",
+
+          "# Setup the CloudFormation Helper Scripts\n",
+          "curl -O https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz\n",
+          "tar -xvpf aws-cfn-bootstrap-latest.tar.gz\n",
+          "cd aws-cfn-bootstrap-*\n",
+          "python setup.py build\n",
+          "python setup.py install\n",
+          "ln -s /usr/init/redhat/cfn-hup /etc/init.d/cfn-hup\n",
+          "chmod 775 /usr/init/redhat/cfn-hup\n",
+          "mkdir -p /opt/aws/bin\n",
+          "ln -s /usr/bin/cfn-hup /opt/aws/bin/cfn-hup\n",
+          "ln -s /usr/bin/cfn-init /opt/aws/bin/cfn-init\n",
+          "ln -s /usr/bin/cfn-signal /opt/aws/bin/cfn-signal\n",
+          "ln -s /usr/bin/cfn-elect-cmd-leader /opt/aws/bin/cfn-elect-cmd-leader\n",
+          "ln -s /usr/bin/cfn-get-metadata /opt/aws/bin/cfn-get-metadata\n",
+          "ln -s /usr/bin/cfn-send-cmd-event /opt/aws/bin/cfn-send-cmd-event\n",
+          "ln -s /usr/bin/cfn-send-cmd-result /opt/aws/bin/cfn-send-cmd-result\n",
+
+          "yum install -y epel-release\n",
+
+          "# Install the files and packages from the metadata\n",
+          "/opt/aws/bin/cfn-init -v ",
+          "         --stack ",{"Ref": "AWS::StackName"},
+          "         --resource Jenkins ",
+          "         --configsets Install ",
+          "         --region ",{"Ref": "AWS::Region"},"\n"
+        ]]}}
+      }
+    }
+  },
+  "Outputs": {
+
+  }
+}
