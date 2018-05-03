@@ -1,4 +1,4 @@
-## CloudFormation templates
+## CloudFormation
 Various CloudFormation templates for doing this and that.
 
 ### DevOps-in-a-Box
