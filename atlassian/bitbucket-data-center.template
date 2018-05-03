@@ -1,0 +1,1276 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: QS-0034 - Atlassian Bitbucket Data Center
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Bitbucket Setup
+        Parameters: [BitbucketVersion]
+      - Label:
+          default: Cluster Nodes
+        Parameters: [ClusterNodeInstanceType, ClusterNodeMin, ClusterNodeMax]
+      - Label:
+          default: File Server
+        Parameters: [FileServerInstanceType, HomeSize, HomeVolumeType, HomeIops]
+      - Label:
+          default: Database
+        Parameters:
+          - DBInstanceClass
+          - DBMasterUserPassword
+          - DBPassword
+          - DBStorage
+          - DBStorageType
+          - DBIops
+          - DBMultiAZ
+      - Label:
+          default: Elasticsearch
+        Parameters: [ElasticsearchInstanceType]
+      - Label:
+          default: Networking
+        Parameters:
+          - VPC
+          - ExternalSubnets
+          - InternalSubnets
+          - AssociatePublicIpAddress
+          - CidrBlock
+          - KeyName
+          - CustomDnsName
+          - SSLCertificateName
+      - Label:
+          default: Advanced (Optional)
+        Parameters:
+          - DBSnapshotId
+          - HomeVolumeSnapshotId
+          - CreateESBucket
+          - ESBucketName
+          - ESSnapshotId
+          - BitbucketProperties
+          - CatalinaOpts
+          - AMIOpts
+          - HomeDeleteOnTermination
+          - DBMaster
+          - StartCollectd
+    ParameterLabels:
+      AMIOpts:
+        default: AMI options
+      AssociatePublicIpAddress:
+        default: Assign public IP
+      BitbucketProperties:
+        default: Bitbucket properties
+      BitbucketVersion:
+        default: Version
+      CatalinaOpts:
+        default: Catalina options
+      CidrBlock:
+        default: Permitted IP range
+      ClusterNodeMax:
+        default: Maximum number of cluster nodes
+      ClusterNodeMin:
+        default: Minimum number of cluster nodes
+      ClusterNodeInstanceType:
+        default: Bitbucket cluster node instance type
+      CreateESBucket:
+        default: S3 Bucket for Elasticsearch snapshots?
+      CustomDnsName:
+        default: Existing DNS name (optional)
+      ESBucketName:
+        default: Elasticsearch S3 bucket name
+      ESSnapshotId:
+        default: Elasticsearch Snapshot ID to Restore
+      DBInstanceClass:
+        default: Database instance class
+      DBMasterUserPassword:
+        default: Master password
+      DBPassword:
+        default: Bitbucket database password
+      DBMaster:
+        default: Bitbucket Primary RDS
+      DBStorage:
+        default: Database allocated storage in GB
+      DBMultiAZ:
+        default: Enable RDS Multi-AZ deployment
+      DBStorageType:
+        default: Database storage type
+      DBIops:
+        default: RDS Provisioned IOPS
+      DBSnapshotId:
+        default: Database Snapshot ID to Restore
+      ElasticsearchInstanceType:
+        default: Elasticsearch instance type
+      FileServerInstanceType:
+        default: File Server instance type
+      HomeDeleteOnTermination:
+        default: Delete Home on termination?
+      HomeIops:
+        default: Bitbucket Home IOPS
+      HomeVolumeType:
+        default: Bitbucket Home volume type
+      HomeSize:
+        default: Bitbucket Home size
+      HomeVolumeSnapshotId:
+        default: EBS Snapshot ID to Restore
+      KeyName:
+        default: Key Name
+      SSLCertificateName:
+        default: SSL certificate name
+      StartCollectd:
+        default: Start the collectd service?
+      ExternalSubnets:
+        default: External subnets
+      InternalSubnets:
+        default: Internal subnets
+      VPC:
+        default: VPC
+Parameters:
+  ProxyHost:
+    Description: Proxy server to use for outbound internet access
+    Type: String
+    Default: ""
+  ProxyPort:
+    Description: Port on which proxy server operates
+    Type: String
+    Default: "8080"
+  AMIOpts:
+    Description: A comma-separated list of options to pass to the AMI
+    Type: CommaDelimitedList
+    Default: ""
+  AssociatePublicIpAddress:
+    Description: Controls if the EC2 instances are assigned a public IP address
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
+    ConstraintDescription: Must be 'true' or 'false'
+  BitbucketProperties:
+    Description: A comma-separated list of Bitbucket properties in the form key1=value1, key2=value2, etc. Documentation at https://confluence.atlassian.com/x/m5ZKLg
+    Type: CommaDelimitedList
+    Default: ""
+  BitbucketVersion:
+    Description: "Version of Bitbucket to install. Find valid versions at http://go.atlassian.com/bbs-releases"
+    Type: String
+    AllowedPattern: "(\\d+\\.\\d+\\.\\d+(-?.*))"
+    ConstraintDescription: "Must be a valid Bitbucket version number"
+  CidrBlock:
+    Description: The CIDR IP range that is permitted to access the Bitbucket URL. Use 0.0.0.0/0 for public access from anywhere.
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})"
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x.
+  ClusterNodeMin:
+    Type: Number
+    Default: 1
+    Description: Set to 1 for new instances (can be updated post-launch)
+  ClusterNodeMax:
+    Type: Number
+    Default: 4
+  ClusterNodeInstanceType:
+    Type: String
+    Default: t2.medium
+    AllowedValues:
+      - t2.medium
+      - c3.xlarge
+      - c3.2xlarge
+      - c3.4xlarge
+      - c3.8xlarge
+      - i2.xlarge
+      - i2.2xlarge
+      - i2.4xlarge
+      - i2.8xlarge
+      - r3.xlarge
+      - r3.2xlarge
+      - r3.4xlarge
+      - r3.8xlarge
+      - x1.32xlarge
+    ConstraintDescription: Must be a valid EC2 instance type
+    Description: "Instance type for the cluster nodes. See https://confluence.atlassian.com/x/GpdKLg for guidance"
+  CustomDnsName:
+    Description: Use a custom, existing DNS name for your Bitbucket Data Center instance. You must own the domain and configure it to point at the load balancer.
+    Type: String
+  CatalinaOpts:
+    Description: JVM options for Bitbucket
+    Type: String
+    Default: ""
+  CreateESBucket:
+    Description: Set to true to create the S3 bucket within this stack. Use in conjunction with 'ESBucketName' parameter.
+    Type: String
+    Default: false
+    AllowedValues: [true, false]
+    ConstraintDescription: Must be 'true' or 'false'
+  ESBucketName:
+    Type: String
+    Default: ""
+    Description: Name of a new or existing S3 bucket for Elasticsearch snapshots
+    ConstraintDescription: "Must contain only lowercase-letters, numbers and hyphens (-)"
+    AllowedPattern: "[a-z0-9-]*"
+  ESSnapshotId:
+    Type: String
+    Default: ""
+    Description: Must be a valid snapshot ID for a snapshot in the configured S3 snapshot repo. Used in conjunction with 'ESBucketName' parameter.
+    AllowedPattern: "[a-z0-9-]*"
+    ConstraintDescription: "Must contain only lowercase letters, numbers and hyphens (-)"
+  DBInstanceClass:
+    Type: String
+    Default: db.t2.small
+    AllowedValues:
+      - db.t2.small
+      - db.m4.large
+      - db.m4.xlarge
+      - db.m4.2xlarge
+      - db.m4.4xlarge
+      - db.m4.10xlarge
+      - db.r3.large
+      - db.r3.xlarge
+      - db.r3.2xlarge
+      - db.r3.4xlarge
+      - db.r3.8xlarge
+      - db.t2.medium
+      - db.t2.large
+    ConstraintDescription: Must be a valid RDS instance class
+  DBMasterUserPassword:
+    NoEcho: true
+    Description: Password for the master ('postgres') account. Must be 8-128 characters.
+    Type: String
+    MinLength: 8
+    MaxLength: 128
+    AllowedPattern: "[a-zA-Z0-9]*"
+    ConstraintDescription: Must be at least 8 alphanumeric characters.
+  DBPassword:
+    Description: Password for the Bitbucket user ('atlbitbucket') account. Must be 8-128 characters. Not used if a RDS snapshot ID is provided.
+    Type: String
+    MaxLength: 128
+    AllowedPattern: "[a-zA-Z0-9]*"
+    ConstraintDescription: Must contain 8 to 128 alphanumeric characters.
+    NoEcho: true
+  DBMaster:
+    Description: ARN of the RDS instance to replicate. Setting this parameter configures Bitbucket as a DR standby using a read replica.
+    Default: ""
+    Type: String
+    ConstraintDescription: Must be a valid RDS ARN
+  DBSnapshotId:
+    Description: RDS snapshot ID to restore. Used in conjunction with 'HomeVolumeSnapshotId' parameter. Leave blank for a new instance.
+    Type: String
+    Default: ""
+    ConstraintDescription: Must be a valid RDS snapshot ID or blank.
+  DBStorage:
+    Description: Allocated storage size in GB for database. With Provisioned IOPS, storage should be between 100 and 6144 GB.
+    Type: Number
+    Default: 10
+    MinValue: 5
+    MaxValue: 6144
+  DBMultiAZ:
+    Type: String
+    Default: true
+    AllowedValues: [true, false]
+    ConstraintDescription: Must be 'true' or 'false'
+  DBStorageType:
+    Type: String
+    Default: General Purpose (SSD)
+    AllowedValues: [General Purpose (SSD), Provisioned IOPS]
+    ConstraintDescription: Must be 'General Purpose (SSD)' or 'Provisioned IOPS'
+  DBIops:
+    Default: 1000
+    Description: "Must be in the range of 1000-30000 and a multiple of 1000. Used with 'Provisioned IOPS' storage type. Ratio of IOPS per GB must be between 3.00 and 10.00."
+    Type: Number
+    MinValue: 1000
+    MaxValue: 30000
+    ConstraintDescription: Must be in the range 1000-30000
+  ElasticsearchInstanceType:
+    Type: String
+    Default: t2.small.elasticsearch
+    AllowedValues:
+      - t2.small.elasticsearch
+      - t2.medium.elasticsearch
+      - m3.large.elasticsearch
+      - m3.xlarge.elasticsearch
+      - m3.2xlarge.elasticsearch
+      - r3.large.elasticsearch
+      - r3.xlarge.elasticsearch
+      - r3.2xlarge.elasticsearch
+      - r3.4xlarge.elasticsearch
+      - r3.8xlarge.elasticsearch
+      - i2.xlarge.elasticsearch
+      - i2.2xlarge.elasticsearch
+    ConstraintDescription: Must be a valid Elasticsearch instance type
+  FileServerInstanceType:
+    Description: "Instance type for file server hosting the Bitbucket shared directory. See https://confluence.atlassian.com/x/GpdKLg for guidance"
+    Type: String
+    Default: t2.small
+    AllowedValues:
+      - t2.small
+      - t2.medium
+      - c4.xlarge
+      - c4.2xlarge
+      - c4.4xlarge
+      - c4.8xlarge
+      - m4.xlarge
+      - m4.2xlarge
+      - m4.4xlarge
+      - m4.10xlarge
+      - m4.16xlarge
+      - x1.32xlarge
+    ConstraintDescription: Must be an EC2 instance type in the C4, M4, or X1 family, 'xlarge' or larger.
+  HomeDeleteOnTermination:
+    Description: Delete Bitbucket shared directory when the file server instance is terminated. Backup your data before termination if 'true'!
+    Type: String
+    Default: true
+    AllowedValues: [true, false]
+    ConstraintDescription: Must be 'true' or 'false'
+  HomeIops:
+    Description: "Must be between 100-20000, only used with Provisioned IOPS. Ratio of IOPS to volume size in GB must be less than 50. For example, a volume with 5000 IOPS must be at least 100 GB."
+    Type: Number
+    Default: 1000
+    MinValue: 100
+    MaxValue: 20000
+    ConstraintDescription: Must be in the range 100-20000
+  HomeSize:
+    Description: Shared volume (Bitbucket Home directory) size. Must be in the range of 100-16384 GB.
+    Type: Number
+    Default: 100
+    MinValue: 100
+    MaxValue: 16384
+    ConstraintDescription: Must be in the range 100-16384
+  HomeVolumeSnapshotId:
+    Description: EBS snapshot ID when doing a restore. Used in conjunction with 'DBSnapshotId' parameter. Leave blank for a new instance.
+    Type: String
+    Default: ""
+    ConstraintDescription: Must be a valid EBS snapshot ID
+  HomeVolumeType:
+    Type: String
+    Default: "General Purpose (SSD)"
+    AllowedValues: [General Purpose (SSD), Provisioned IOPS]
+    ConstraintDescription: Must be 'General Purpose (SSD)' or 'Provisioned IOPS'
+  KeyName:
+    Description: EC2 Key Pair name for SSH access
+    Type: "AWS::EC2::KeyPair::KeyName"
+    ConstraintDescription: Must be the name of an existing EC2 Key Pair in the current region
+  SSLCertificateName:
+    Description: Server Certificate to use for HTTPS. Leave blank if you don't want to set up HTTPS at this time.
+    Type: String
+    MinLength: 0
+    MaxLength: 32
+    Default: ""
+  StartCollectd:
+    Type: String
+    Default: false
+    AllowedValues: [false]
+    ConstraintDescription: Must be 'true' or 'false'
+  ExternalSubnets:
+    Description: Subnets (2+) within the selected VPC where the ELB will be deployed.
+    Type: "List<AWS::EC2::Subnet::Id>"
+    ConstraintDescription: Must be a list of two or more subnets IDs within the selected VPC
+  InternalSubnets:
+    Description: Subnets (2+) within the selected VPC where the cluster nodes and other internal infrastructure will be deployed. Specify the same subnets as ELB here if you wish to deploy the whole stack into the same subnets.
+    Type: "List<AWS::EC2::Subnet::Id>"
+    ConstraintDescription: Must be a list of two or more subnets IDs within the selected VPC
+  VPC:
+    Description: Virtual Private Cloud
+    Type: "AWS::EC2::VPC::Id"
+    ConstraintDescription: Must be the ID of a VPC in the current region
+Conditions:
+  DBProvisionedIops:
+    !Equals [!Ref DBStorageType, Provisioned IOPS]
+  SetupCollectd:
+    !Equals [!Ref StartCollectd, true]
+  RestoreFromEBSSnapshot:
+    !Not [!Equals [!Ref HomeVolumeSnapshotId, ""]]
+  RestoreFromRDSSnapshot:
+    !Not [!Equals [!Ref DBSnapshotId, ""]]
+  RestoreFromESSnapshot:
+    !And
+      - !Not [!Equals [!Ref ESSnapshotId, ""]]
+      - Condition: ESBucketNameSet
+  CreateESBucketCondition:
+    !And
+      - !Equals [!Ref CreateESBucket, "true"]
+      - !And
+        - !Not [Condition: RestoreFromESSnapshot]
+        - Condition: ESBucketNameSet
+  ESBucketNameSet:
+    !Not [!Equals [!Ref ESBucketName, ""]]
+  StandbyMode:
+    !Not [!Equals [!Ref DBMaster, ""]]
+  SetupSSL:
+    !Not [!Equals [!Ref SSLCertificateName, ""]]
+  NotStandbyMode:
+    !Equals [!Ref DBMaster, ""]
+  IsHomeProvisionedIops:
+    !Equals [!Ref HomeVolumeType, Provisioned IOPS]
+  IsVersion4X:
+    !Equals ["4", !Select [0, !Split [".", !Ref BitbucketVersion]]]
+  IsVersion5X:
+    !Equals ["5", !Select [0, !Split [".", !Ref BitbucketVersion]]]
+  IsVersionX0:
+    !Equals ["0", !Select [1, !Split [".", !Ref BitbucketVersion]]]
+  IsVersionX1:
+    !Equals ["1", !Select [1, !Split [".", !Ref BitbucketVersion]]]
+  IsVersionX2:
+    !Equals ["2", !Select [1, !Split [".", !Ref BitbucketVersion]]]
+  IsVersionX3:
+    !Equals ["3", !Select [1, !Split [".", !Ref BitbucketVersion]]]
+  IsVersionX4:
+    !Equals ["4", !Select [1, !Split [".", !Ref BitbucketVersion]]]
+  IsVersionX5:
+    !Equals ["5", !Select [1, !Split [".", !Ref BitbucketVersion]]]
+  IsVersionX6:
+    !Equals ["6", !Select [1, !Split [".", !Ref BitbucketVersion]]]
+  ShouldUseES23:
+    !Or [Condition: IsVersion4X, !And [Condition: IsVersion5X, !Or [Condition: IsVersionX0, Condition: IsVersionX1, Condition: IsVersionX2, Condition: IsVersionX3, Condition: IsVersionX4, Condition: IsVersionX5, Condition: IsVersionX6]]]
+  RestoreRDSOrStandby:
+    !Or [Condition: RestoreFromRDSSnapshot, Condition: StandbyMode]
+  SetDBMasterUserPassword:
+    !And [!Not [!Equals [!Ref DBMasterUserPassword, ""]], Condition: NotStandbyMode]
+  EBSOptimizedFalse:
+    !Or
+      - !Equals [!Ref FileServerInstanceType, "t2.small"]
+      - !Equals [!Ref FileServerInstanceType, "t2.medium"]
+  UseCustomDnsName:
+    !Not [!Equals [!Ref CustomDnsName, ""]]
+Mappings:
+  AWSInstanceType2Arch:
+    t2.small:
+      Arch: HVM64
+    t2.medium:
+      Arch: HVM64
+    c3.large:
+      Arch: HVM64
+    c3.xlarge:
+      Arch: HVM64
+    c3.2xlarge:
+      Arch: HVM64
+    c3.4xlarge:
+      Arch: HVM64
+    c3.8xlarge:
+      Arch: HVM64
+    c4.large:
+      Arch: HVM64
+    c4.xlarge:
+      Arch: HVM64
+    c4.2xlarge:
+      Arch: HVM64
+    c4.4xlarge:
+      Arch: HVM64
+    c4.8xlarge:
+      Arch: HVM64
+    d2.xlarge:
+      Arch: HVM64
+    d2.2xlarge:
+      Arch: HVM64
+    d2.4xlarge:
+      Arch: HVM64
+    d2.8xlarge:
+      Arch: HVM64
+    i2.xlarge:
+      Arch: HVM64
+    i2.2xlarge:
+      Arch: HVM64
+    i2.4xlarge:
+      Arch: HVM64
+    i2.8xlarge:
+      Arch: HVM64
+    m4.large:
+      Arch: HVM64
+    m4.xlarge:
+      Arch: HVM64
+    m4.2xlarge:
+      Arch: HVM64
+    m4.4xlarge:
+      Arch: HVM64
+    m4.10xlarge:
+      Arch: HVM64
+    m4.16xlarge:
+      Arch: HVM64
+    r3.large:
+      Arch: HVM64
+    r3.xlarge:
+      Arch: HVM64
+    r3.2xlarge:
+      Arch: HVM64
+    r3.4xlarge:
+      Arch: HVM64
+    r3.8xlarge:
+      Arch: HVM64
+    x1.32xlarge:
+      Arch: HVM64
+  AWSRegionArch2AMI:
+    ap-northeast-1:
+      HVM64: ami-b6f56dd0
+      HVMG2: NOT_SUPPORTED
+    ap-northeast-2:
+      HVM64: ami-7595351b
+      HVMG2: NOT_SUPPORTED
+    ap-south-1:
+      HVM64: ami-c9194ea6
+      HVMG2: NOT_SUPPORTED
+    ap-southeast-1:
+      HVM64: ami-b9691ac5
+      HVMG2: NOT_SUPPORTED
+    ap-southeast-2:
+      HVM64: ami-36e71a54
+      HVMG2: NOT_SUPPORTED
+    ca-central-1:
+      HVM64: ami-55840131
+      HVMG2: NOT_SUPPORTED
+    eu-central-1:
+      HVM64: ami-5e41d331
+      HVMG2: NOT_SUPPORTED
+    eu-west-1:
+      HVM64: ami-d0b122a9
+      HVMG2: NOT_SUPPORTED
+    eu-west-2:
+      HVM64: ami-e7b7af83
+      HVMG2: NOT_SUPPORTED
+    eu-west-3:
+      HVM64: ami-9b01b6e6
+      HVMG2: NOT_SUPPORTED
+    sa-east-1:
+      HVM64: ami-f44e0c98
+      HVMG2: NOT_SUPPORTED
+    us-east-1:
+      HVM64: ami-af82dbd5
+      HVMG2: NOT_SUPPORTED
+    us-east-2:
+      HVM64: ami-5388a336
+      HVMG2: NOT_SUPPORTED
+    us-west-1:
+      HVM64: ami-81a7a7e1
+      HVMG2: NOT_SUPPORTED
+    us-west-2:
+      HVM64: ami-d71eaaaf
+      HVMG2: NOT_SUPPORTED
+Resources:
+  BitbucketFileServerRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "ec2.amazonaws.com"
+                - "es.amazonaws.com"
+            Action: ["sts:AssumeRole"]
+      Path: /
+      Policies:
+        - PolicyName: bitbucket-file-server-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "ec2:AttachVolume"
+                  - "ec2:CopySnapshot"
+                  - "ec2:CreateSnapshot"
+                  - "ec2:CreateTags"
+                  - "ec2:CreateVolume"
+                  - "ec2:DeleteSnapshot"
+                  - "ec2:DescribeInstances"
+                  - "ec2:DescribeSnapshots"
+                  - "ec2:DescribeVolumes"
+                  - "ec2:DetachVolume"
+                  - "rds:AddTagsToResource"
+                  - "rds:CopyDBSnapshot"
+                  - "rds:CreateDBSnapshot"
+                  - "rds:DeleteDBSnapshot"
+                  - "rds:DescribeDBInstances"
+                  - "rds:DescribeDBSnapshots"
+                  - "rds:PromoteReadReplica"
+                  - "rds:ModifyDBInstance"
+                  - "rds:RestoreDBInstanceFromDBSnapshot"
+                  - "iam:PassRole"
+                  - "es:*"
+                Resource: ["*"]
+              - !If
+                - ESBucketNameSet
+                - Effect: Allow
+                  Action:
+                    - "s3:DeleteObject"
+                    - "s3:GetObject"
+                    - "s3:ListBucket"
+                    - "s3:PutObject"
+                  Resource:
+                    - !Sub ["arn:aws:s3:::${BucketName}", BucketName: !Ref ESBucketName]
+                    - !Sub ["arn:aws:s3:::${BucketName}/*", BucketName: !Ref ESBucketName]
+                - !Ref "AWS::NoValue"
+      RoleName: !Sub ["${StackName}-file-server", StackName: !Ref "AWS::StackName"]
+  BitbucketClusterNodeRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [ec2.amazonaws.com]
+            Action: ["sts:AssumeRole"]
+      Path: /
+      Policies:
+        - PolicyName: bitbucket-cluster-node-policy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Action: ["ec2:DescribeInstances"]
+                Effect: Allow
+                Resource: ["*"]
+      RoleName: !Sub ["${StackName}-cluster-node", StackName: !Ref "AWS::StackName"]
+  BitbucketFileServerInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: /
+      Roles: [!Ref BitbucketFileServerRole]
+  BitbucketClusterNodeInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: /
+      Roles: [!Ref BitbucketClusterNodeRole]
+  ClusterNodeGroup:
+    Type: "AWS::AutoScaling::AutoScalingGroup"
+    CreationPolicy:
+      ResourceSignal:
+        Count: "1"
+        Timeout: PT30M
+    Properties:
+      DesiredCapacity: !If [StandbyMode, 0, !Ref ClusterNodeMin]
+      LaunchConfigurationName: !Ref ClusterNodeLaunchConfig
+      MaxSize: !Ref ClusterNodeMax
+      MinSize: !If [StandbyMode, 0, !Ref ClusterNodeMin]
+      LoadBalancerNames: [!Ref LoadBalancer]
+      VPCZoneIdentifier: !Ref InternalSubnets
+      Tags:
+        - Key: Name
+          Value: bitbucket-node
+          PropagateAtLaunch: true
+        - Key: Cluster
+          Value: !Ref "AWS::StackName"
+          PropagateAtLaunch: true
+  ClusterNodeLaunchConfig:
+    Type: "AWS::AutoScaling::LaunchConfiguration"
+    Metadata:
+      AWS::CloudFormation::Init:
+        configSets:
+          default: [1, 2]
+        "1":
+          files:
+            /etc/default/cloud-init:
+              content:
+                !Join
+                  - "\n"
+                  -
+                    - !Sub
+                      - "export http_proxy=\"http://${ProxyHost}:${ProxyPort}\""
+                      - ProxyHost: !Ref ProxyHost
+                        ProxyPort: !Ref ProxyPort
+                    - !Sub
+                      - "export https_proxy=\"http://${ProxyHost}:${ProxyPort}\""
+                      - ProxyHost: !Ref ProxyHost
+                        ProxyPort: !Ref ProxyPort
+                    - !Sub
+                      - "export HTTP_PROXY=\"http://${ProxyHost}:${ProxyPort}\""
+                      - ProxyHost: !Ref ProxyHost
+                        ProxyPort: !Ref ProxyPort
+                    - !Sub
+                      - "export HTTPS_PROXY=\"http://${ProxyHost}:${ProxyPort}\""
+                      - ProxyHost: !Ref ProxyHost
+                        ProxyPort: !Ref ProxyPort
+                    - !Sub ["export no_proxy=\"${ProxyHost},169.254.169.254,repo.dtcc.com\"\n", ProxyHost: !Ref "ProxyHost"]
+            /etc/atl:
+              content:
+                !Join
+                  - "\n"
+                  -
+                    - ATL_APP_DATA_MOUNT_ENABLED=false
+                    - !Sub ["ATL_DB_PASSWORD=${DBMasterUserPassword}", DBMasterUserPassword: !Ref DBMasterUserPassword]
+                    - ATL_DB_NAME=bitbucket
+                    - !Sub ["ATL_DB_HOST=${DBEndpointAddress}", DBEndpointAddress: !GetAtt DB.Endpoint.Address]
+                    - !Sub ["ATL_DB_PORT=${DBEndpointPort}", DBEndpointPort: !GetAtt DB.Endpoint.Port]
+                    - ATL_JDBC_DRIVER=org.postgresql.Driver
+                    - !Sub
+                      - "ATL_JDBC_URL=jdbc:postgresql://${DBEndpointAddress}:${DBEndpointPort}/bitbucket"
+                      - DBEndpointAddress: !GetAtt DB.Endpoint.Address
+                        DBEndpointPort: !GetAtt DB.Endpoint.Port
+                    - ATL_JDBC_USER=atlbitbucket
+                    - !Sub ["ATL_JDBC_PASSWORD=${DBPassword}", DBPassword: !Ref DBPassword]
+                    - !Sub ["ATL_BITBUCKET_PROPERTIES=\"${BitbucketProperties}", BitbucketProperties: !Join ["\n", !Ref BitbucketProperties]]
+                    - hazelcast.network.aws=true
+                    - !Sub ["hazelcast.network.aws.iam.role=${BitbucketClusterNodeRole}", BitbucketClusterNodeRole: !Ref BitbucketClusterNodeRole]
+                    - !Sub ["hazelcast.network.aws.region=${Region}", Region: !Ref "AWS::Region"]
+                    - hazelcast.network.aws.tag.key=Cluster
+                    - !Sub ["hazelcast.network.aws.tag.value=${StackName}", StackName: !Ref "AWS::StackName"]
+                    - hazelcast.network.multicast=false
+                    - !Sub ["hazelcast.group.name=${StackName}", StackName: !Ref "AWS::StackName"]
+                    - !Sub ["hazelcast.group.password=${StackName}", StackName: !Ref "AWS::StackName"]
+                    - !Sub ["plugin.search.elasticsearch.aws.region=${Region}", Region: !Ref "AWS::Region"]
+                    - !Sub ["plugin.search.elasticsearch.baseurl=http://${ESEndpoint}\"", ESEndpoint: !GetAtt Elasticsearch.DomainEndpoint]
+                    - !Sub ["ATL_BITBUCKET_VERSION=${BitbucketVersion}", BitbucketVersion: !Ref BitbucketVersion]
+                    - ATL_BITBUCKET_BUNDLED_ELASTICSEARCH_ENABLED=false
+                    - ATL_NGINX_ENABLED=false
+                    - ATL_POSTGRES_ENABLED=false
+                    - !If
+                      - UseCustomDnsName
+                      - !Sub ["ATL_PROXY_NAME=${CustomDNSName}", CustomDNSName: !Ref CustomDnsName]
+                      - !Sub ["ATL_PROXY_NAME=${LoadBalancerDNSName}", LoadBalancerDNSName: !GetAtt LoadBalancer.DNSName]
+                    - ATL_SSL_SELF_CERT_ENABLED=false
+                    - !If [SetupSSL, "ATL_SSL_PROXY=true", !Ref "AWS::NoValue"]
+                    - !Join ["\n", !Ref AMIOpts]
+            /etc/cfn/cfn-hup.conf:
+              content: !Join
+                - "\n"
+                -
+                  - "[main]"
+                  - !Sub ["stack=${StackId}", StackId: !Ref "AWS::StackId"]
+                  - !Sub ["region=${Region}", Region: !Ref "AWS::Region"]
+              mode: 000400
+              owner: root
+              group: root
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content:
+                !Join
+                  - "\n"
+                  -
+                    - "[cfn-auto-reloader-hook]"
+                    - triggers=post.update
+                    - "path=Resources.ClusterNodeLaunchConfig.Metadata.AWS::CloudFormation::Init"
+                    - !Sub
+                      - "action=/opt/aws/bin/cfn-init -v --stack ${StackName} --resource ClusterNodeLaunchConfig --region ${Region} --http-proxy http://${ProxyHost}:${ProxyPort} --https-proxy https://${ProxyHost}:${ProxyPort}"
+                      - StackName: !Ref "AWS::StackName"
+                        Region: !Ref "AWS::Region"
+                        ProxyHost: !Ref ProxyHost
+                        ProxyPort: !Ref ProxyPort
+                    - runas=root
+            /home/atlbitbucket/.bash_profile:
+              content:
+                !Join
+                  - "\n"
+                  -
+                    - if [ -f ~/.bashrc ]; then
+                    -     . ~/.bashrc
+                    - fi
+                    - !Sub ["export CATALINA_OPTS=\"${CatalinaOpts}\"", CatalinaOpts: !Ref CatalinaOpts]
+              mode: 000644
+              owner: atlbitbucket
+              group: atlbitbucket
+          commands:
+            010_add_nfs_mount:
+              command: !Sub
+                - "echo ${FileServerPrivateIp}:/media/atl/bitbucket/shared /media/atl/bitbucket/shared nfs lookupcache=pos,noatime,intr,rsize=32768,wsize=32768 0 0 >> /etc/fstab"
+                - FileServerPrivateIp: !GetAtt FileServer.PrivateIp
+              ignoreErrors: false
+            020_make_shared_home_dir:
+              command: mkdir -p /media/atl/bitbucket/shared
+              ignoreErrors: false
+            030_chown_shared_home_dir:
+              command: "chown atlbitbucket:atlbitbucket /media/atl/bitbucket /media/atl/bitbucket/shared"
+              ignoreErrors: false
+          services:
+            sysvinit:
+              cfn-hup:
+                enabled: true
+                ensureRunning: true
+                files: [/etc/cfn/cfn-hup.conf, /etc/cfn/hooks.d/cfn-auto-reloader.conf]
+              rpcbind:
+                enabled: true
+                ensureRunning: true
+                packages:
+                  yum: [nfs-utils]
+        "2":
+          packages:
+            !If
+              - SetupCollectd
+              - yum:
+                  collectd: []
+                  collectd-java: []
+                  collectd-generic-jmx: []
+                  collectd-rrdtool: []
+              - !Ref "AWS::NoValue"
+          commands:
+            040_mount_nfs:
+              command: "bash -c \"until mount /media/atl/bitbucket/shared; do echo 'Volume mounting failed ... trying again in 5 seconds'; sleep 5; done\""
+              ignoreErrors: false
+          services:
+            sysvinit:
+              collectd:
+                !If [SetupCollectd, {enabled: true, ensureRunning: true}, !Ref "AWS::NoValue"]
+              nfslock:
+                enabled: true
+                ensureRunning: true
+                packages:
+                  yum: [nfs-utils]
+    Properties:
+      AssociatePublicIpAddress: !Ref AssociatePublicIpAddress
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvdf
+          Ebs: {}
+          NoDevice: true
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref BitbucketClusterNodeInstanceProfile
+      ImageId:
+        !FindInMap
+          - AWSRegionArch2AMI
+          - !Ref "AWS::Region"
+          - !FindInMap
+              - AWSInstanceType2Arch
+              - !Ref ClusterNodeInstanceType
+              - Arch
+      InstanceType: !Ref ClusterNodeInstanceType
+      SecurityGroups: [!Ref SecurityGroup]
+      UserData:
+        Fn::Base64:
+          !Join
+            - ""
+            -
+              - "#!/bin/bash -xe\n"
+              - "yum update -y aws-cfn-bootstrap\n"
+              - !Sub
+                - "/opt/aws/bin/cfn-init -v --stack ${StackName} --resource ClusterNodeLaunchConfig --region ${Region} --http-proxy http://${ProxyHost}:${ProxyPort} --https-proxy https://${ProxyHost}:${ProxyPort}\n"
+                - StackName: !Ref "AWS::StackName"
+                  Region: !Ref "AWS::Region"
+                  ProxyHost: !Ref ProxyHost
+                  ProxyPort: !Ref ProxyPort
+              - !Sub
+                - "/opt/aws/bin/cfn-signal -e $? --stack ${StackName} --resource ClusterNodeGroup --region ${Region} --http-proxy http://${ProxyHost}:${ProxyPort} --https-proxy https://${ProxyHost}:${ProxyPort}\n"
+                - StackName: !Ref "AWS::StackName"
+                  Region: !Ref "AWS::Region"
+                  ProxyHost: !Ref ProxyHost
+                  ProxyPort: !Ref ProxyPort
+  ClusterNodeScaleUpPolicy:
+    Type: "AWS::AutoScaling::ScalingPolicy"
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref ClusterNodeGroup
+      Cooldown: 600
+      ScalingAdjustment: 1
+  ClusterNodeScaleDownPolicy:
+    Type: "AWS::AutoScaling::ScalingPolicy"
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref ClusterNodeGroup
+      Cooldown: 600
+      ScalingAdjustment: -1
+  CPUAlarmHigh:
+    Type: "AWS::CloudWatch::Alarm"
+    Properties:
+      AlarmDescription: Scale up if CPU utilization > 60% for 5 minutes in an hour
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 5
+      Threshold: 60
+      AlarmActions: [!Ref ClusterNodeScaleUpPolicy]
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref ClusterNodeGroup
+      ComparisonOperator: GreaterThanThreshold
+  CPUAlarmLow:
+    Type: "AWS::CloudWatch::Alarm"
+    Properties:
+      AlarmDescription: Scale down if CPU utilization < 40% for 30 minutes in an hour
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 60
+      EvaluationPeriods: 30
+      Threshold: 40
+      AlarmActions: [!Ref ClusterNodeScaleDownPolicy]
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref ClusterNodeGroup
+      ComparisonOperator: LessThanThreshold
+  Elasticsearch:
+    Type: "AWS::Elasticsearch::Domain"
+    Properties:
+      DomainName: bitbucket
+      EBSOptions:
+        EBSEnabled: true
+        VolumeSize: 10
+      ElasticsearchVersion: !If [ShouldUseES23, "2.3", "5.5"]
+      ElasticsearchClusterConfig:
+        InstanceType: !Ref ElasticsearchInstanceType
+      AccessPolicies:
+        Version: 2012-10-17
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              AWS: !GetAtt BitbucketClusterNodeRole.Arn
+            Action: "es:*"
+            Resource: "*"
+      Tags:
+        - Key: Name
+          Value: bitbucket-elasticsearch-cluster
+        - Key: Application
+          Value: !Ref "AWS::StackId"
+      VPCOptions:
+        SecurityGroupIds: [!Ref SecurityGroup]
+        SubnetIds: [!Select [0, !Ref InternalSubnets]]
+  ElasticsearchBucket:
+    Type: "AWS::S3::Bucket"
+    Condition: CreateESBucketCondition
+    Properties:
+      BucketName: !Ref ESBucketName
+      Tags:
+        - Key: Name
+          Value: bitbucket-elasticsearch-storage
+        - Key: Cluster
+          Value: !Ref "AWS::StackName"
+  FileServer:
+    Type: "AWS::EC2::Instance"
+    CreationPolicy:
+      ResourceSignal:
+        Count: "1"
+        Timeout: PT30M
+    Metadata:
+      Comment: Set up a NFS Server on EC2 and populate initial bitbucket.properties
+      AWS::CloudFormation::Init:
+        configSets:
+          default: [1, 2]
+        "1":
+          files:
+            /etc/default/cloud-init:
+              content:
+                !Join
+                  - "\n"
+                  -
+                    - !Sub
+                      - "export http_proxy=\"http://${ProxyHost}:${ProxyPort}\""
+                      - ProxyHost: !Ref ProxyHost
+                        ProxyPort: !Ref ProxyPort
+                    - !Sub
+                      - "export https_proxy=\"http://${ProxyHost}:${ProxyPort}\""
+                      - ProxyHost: !Ref ProxyHost
+                        ProxyPort: !Ref ProxyPort
+                    - !Sub
+                      - "export HTTP_PROXY=\"http://${ProxyHost}:${ProxyPort}\""
+                      - ProxyHost: !Ref ProxyHost
+                        ProxyPort: !Ref ProxyPort
+                    - !Sub
+                      - "export HTTPS_PROXY=\"http://${ProxyHost}:${ProxyPort}\""
+                      - ProxyHost: !Ref ProxyHost
+                        ProxyPort: !Ref ProxyPort
+                    - !Sub ["export no_proxy=\"${ProxyHost},169.254.169.254,repo.dtcc.com\"\n", ProxyHost: !Ref "ProxyHost"]
+            /etc/atl:
+              content:
+                !Join
+                  - "\n"
+                  -
+                    - ATL_ENABLED_PRODUCTS=
+                    - ATL_ENABLED_SHARED_HOMES=Bitbucket
+                    - ATL_NGINX_ENABLED=false
+                    - ATL_POSTGRES_ENABLED=false
+                    - ATL_SSL_SELF_CERT_ENABLED=false
+                    - ATL_BITBUCKET_BUNDLED_ELASTICSEARCH_ENABLED=false
+                    - ATL_APP_NFS_SERVER=true
+            /etc/cfn/cfn-hup.conf:
+              content:
+                !Join
+                  - "\n"
+                  -
+                    - "[main]"
+                    - !Sub ["stack=${StackId}", StackId: !Ref "AWS::StackId"]
+                    - !Sub ["region=${Region}", Region: !Ref "AWS::Region"]
+              mode: 000400
+              owner: root
+              group: root
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content:
+                !Join
+                  - "\n"
+                  -
+                    - "[cfn-auto-reloader-hook]"
+                    - triggers=post.update
+                    - "path=Resources.FileServer.Metadata.AWS::CloudFormation::Init"
+                    - !Sub
+                      - "action=/opt/aws/bin/cfn-init -v --stack ${StackName} --resource FileServer --region ${Region} --http-proxy http://${ProxyHost}:${ProxyPort} --https-proxy https://${ProxyHost}:${ProxyPort}"
+                      - Region: !Ref "AWS::Region"
+                        StackName: !Ref "AWS::StackName"
+                        ProxyHost: !Ref ProxyHost
+                        ProxyPort: !Ref ProxyPort
+                    - runas=root
+            /opt/atlassian/bitbucket-diy-backup/bitbucket.diy-backup.vars.sh:
+              content:
+                !Join
+                  - "\n"
+                  -
+                    - "# This file was generated from the Bitbucket Data Center CloudFormation template"
+                    - !Sub ["INSTANCE_NAME=${StackName}", StackName: !Ref "AWS::StackName"]
+                    - !Sub
+                      - "BITBUCKET_URL=${HTTP}://${LoadBalancerDNSName}"
+                      - HTTP: !If [SetupSSL, "https", "http"]
+                        LoadBalancerDNSName: !GetAtt LoadBalancer.DNSName
+                    - BITBUCKET_HOME=/media/atl/bitbucket
+                    - BITBUCKET_UID=atlbitbucket
+                    - BITBUCKET_GID=atlbitbucket
+                    - !If
+                      - StandbyMode
+                      - "BACKUP_HOME_TYPE=${BACKUP_HOME_TYPE:-zfs}"
+                      - "BACKUP_HOME_TYPE=${BACKUP_HOME_TYPE:-amazon-ebs}"
+                    - "BACKUP_DATABASE_TYPE=${BACKUP_DATABASE_TYPE:-amazon-rds}"
+                    - BACKUP_ARCHIVE_TYPE=
+                    - "BACKUP_ELASTICSEARCH_TYPE=amazon-es"
+                    - "BACKUP_ZERO_DOWNTIME=true"
+                    - HOME_DIRECTORY_MOUNT_POINT=/media/atl
+                    - HOME_DIRECTORY_DEVICE_NAME=/dev/sdf
+                    - !Sub ["RESTORE_HOME_DIRECTORY_VOLUME_TYPE=${HomeProvisionedIops}", HomeProvisionedIops: !If [IsHomeProvisionedIops, "io1", "gp2"]]
+                    - !If [IsHomeProvisionedIops, !Sub ["RESTORE_HOME_DIRECTORY_IOPS=${HomeIops}", HomeIops: !Ref "HomeIops"], !Ref "AWS::NoValue"]
+                    - FILESYSTEM_TYPE=zfs
+                    - "ZFS_HOME_TANK_NAME=$(run sudo zfs list -H -o name,mountpoint | grep \"${HOME_DIRECTORY_MOUNT_POINT}\" | cut -f1)"
+                    - !Sub ["RDS_INSTANCE_ID=${DB}", DB: !Ref "DB"]
+                    - !Sub ["RESTORE_RDS_INSTANCE_CLASS=${DBInstanceClass}", DBInstanceClass: !Ref "DBInstanceClass"]
+                    - !Sub ["RESTORE_RDS_MULTI_AZ=${DBMultiAZ}", DBMultiAZ: !Ref "DBMultiAZ"]
+                    - !Sub ["RESTORE_RDS_SUBNET_GROUP_NAME=${DBSubnetGroup}", DBSubnetGroup: !Ref "DBSubnetGroup"]
+                    - !Sub ["RESTORE_RDS_SECURITY_GROUP=${SecurityGroup}", SecurityGroup: !Ref "SecurityGroup"]
+                    - "CURL_OPTIONS=\"-L -s -f\""
+                    - !Sub ["AWS_REGION=${Region}", Region: !Ref "AWS::Region"]
+                    - "AWS_INFO=$(curl ${CURL_OPTIONS} http://169.254.169.254/latest/dynamic/instance-identity/document)"
+                    - "AWS_ACCOUNT_ID=$(echo \"${AWS_INFO}\" | jq -r .accountId)"
+                    - "AWS_AVAILABILITY_ZONE=$(echo \"${AWS_INFO}\" | jq -r .availabilityZone)"
+                    - "AWS_REGION=$(echo \"${AWS_INFO}\" | jq -r .region)"
+                    - "AWS_EC2_INSTANCE_ID=$(echo \"${AWS_INFO}\" | jq -r .instanceId)"
+                    - AWS_ADDITIONAL_TAGS=
+                    - "BITBUCKET_VERBOSE_BACKUP=${BITBUCKET_VERBOSE_BACKUP:-true}"
+                    - KEEP_BACKUPS=5
+                    - "ELASTICSEARCH_REPOSITORY_NAME=bitbucket-snapshots"
+                    - "ELASTICSEARCH_INDEX_NAME=bitbucket-search-v1"
+                    - !Sub ["ELASTICSEARCH_S3_BUCKET=${BucketName}", BucketName: !Ref ESBucketName]
+                    - !Sub ["ELASTICSEARCH_S3_BUCKET_REGION=${Region}", Region: !Ref "AWS::Region"]
+                    - !Sub ["ELASTICSEARCH_SNAPSHOT_IAM_ROLE=${Role}", Role: !GetAtt BitbucketFileServerRole.Arn]
+                    - !Sub ["ELASTICSEARCH_HOST=${ESEndpoint}", ESEndpoint: !GetAtt Elasticsearch.DomainEndpoint]
+                    - !If
+                      - StandbyMode
+                      - !Sub ["STANDBY_JDBC_URL=jdbc:postgres://${DBEndpointAddress}/bitbucket", DBEndpointAddress: !GetAtt DB.Endpoint.Address]
+                      - !Ref "AWS::NoValue"
+                    - !If
+                      - StandbyMode
+                      - !Sub ["DR_RDS_READ_REPLICA=${DB}", DB: !Ref DB]
+                      - !Ref "AWS::NoValue"
+              mode: 000644
+              owner: "ec2-user"
+              group: "ec2-user"
+          commands:
+            010_pull_diy_backup_repo:
+              command: "git status"
+              cwd: "/opt/atlassian/bitbucket-diy-backup"
+              ignoreErrors: true
+          services:
+            sysvinit:
+              cfn-hup:
+                enabled: true
+                ensureRunning: true
+                files: [/etc/cfn/cfn-hup.conf, /etc/cfn/hooks.d/cfn-auto-reloader.conf]
+              rpcbind:
+                enabled: true
+                ensureRunning: true
+        "2":
+          packages:
+            !If
+              - SetupCollectd
+              -
+                yum:
+                  collectd: []
+                  collectd-java: []
+                  collectd-generic-jmx: []
+                  collectd-rrdtool: []
+              - !Ref "AWS::NoValue"
+          services:
+            sysvinit:
+              collectd:
+                !If
+                  - SetupCollectd
+                  - enabled: true
+                    ensureRunning: true
+                  - !Ref "AWS::NoValue"
+              nfs:
+                enabled: true
+                ensureRunning: true
+              nfslock:
+                enabled: true
+                ensureRunning: true
+          commands:
+            !If
+              - RestoreFromESSnapshot
+              - 020_restore_es_snapshot:
+                  command: !Sub
+                    - "/opt/atlassian/bitbucket-diy-backup/bitbucket.diy-restore.sh ${ESSnapshotId}"
+                    - ESSnapshotId: !Ref "ESSnapshotId"
+                  ignoreErrors: false
+                  env:
+                    SNAPSHOT_TAG_PREFIX: !Ref "ESSnapshotId"
+                    BACKUP_HOME_TYPE: "none"
+                    BACKUP_DATABASE_TYPE: "none"
+              - !Ref "AWS::NoValue"
+    Properties:
+      BlockDeviceMappings:
+        - DeviceName: /dev/sdf
+          Ebs:
+            VolumeType: !If [IsHomeProvisionedIops, io1, gp2]
+            Iops: !If [IsHomeProvisionedIops, !Ref HomeIops, !Ref "AWS::NoValue"]
+            DeleteOnTermination: !Ref HomeDeleteOnTermination
+            SnapshotId: !If [RestoreFromEBSSnapshot, !Ref HomeVolumeSnapshotId, !Ref "AWS::NoValue"]
+            VolumeSize: !Ref HomeSize
+        - DeviceName: /dev/xvdf
+          NoDevice: {}
+      IamInstanceProfile: !Ref BitbucketFileServerInstanceProfile
+      EbsOptimized: !If [EBSOptimizedFalse, false, true]
+      ImageId:
+        !FindInMap
+          - AWSRegionArch2AMI
+          - !Ref "AWS::Region"
+          - !FindInMap
+              - AWSInstanceType2Arch
+              - !Ref FileServerInstanceType
+              - Arch
+      InstanceType: !Ref FileServerInstanceType
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - GroupSet: [!Ref SecurityGroup]
+          AssociatePublicIpAddress: !Ref AssociatePublicIpAddress
+          DeviceIndex: 0
+          DeleteOnTermination: true
+          SubnetId: !Select [0, !Ref InternalSubnets]
+      Tags:
+        - Key: Name
+          Value: bitbucket-nfs-server
+        - Key: Application
+          Value:
+            !Ref "AWS::StackId"
+      UserData:
+        Fn::Base64:
+          !Join
+            - ""
+            -
+              - "#!/bin/bash -xe\n"
+              - "yum update -y aws-cfn-bootstrap\n"
+              - !Sub
+                - "/opt/aws/bin/cfn-init -v --stack ${StackName} --resource FileServer --region ${Region} --http-proxy http://${ProxyHost}:${ProxyPort} --https-proxy https://${ProxyHost}:${ProxyPort}\n"
+                - StackName: !Ref "AWS::StackName"
+                  Region: !Ref "AWS::Region"
+                  ProxyHost: !Ref ProxyHost
+                  ProxyPort: !Ref ProxyPort
+              - !Sub
+                - "/opt/aws/bin/cfn-signal -e $? --stack ${StackName} --resource FileServer --region ${Region} --http-proxy http://${ProxyHost}:${ProxyPort} --https-proxy https://${ProxyHost}:${ProxyPort}\n"
+                - StackName: !Ref "AWS::StackName"
+                  Region: !Ref "AWS::Region"
+                  ProxyHost: !Ref ProxyHost
+                  ProxyPort: !Ref ProxyPort
+  DB:
+    Type: "AWS::RDS::DBInstance"
+    Properties:
+      SourceDBInstanceIdentifier: !If [StandbyMode, !Ref DBMaster, !Ref "AWS::NoValue"]
+      DBName: !If [RestoreRDSOrStandby, !Ref "AWS::NoValue",bitbucket]
+      AllocatedStorage: !Ref DBStorage
+      DBInstanceClass: !Ref DBInstanceClass
+      DBInstanceIdentifier: !Ref "AWS::StackName"
+      DBName: bitbucket
+      DBSnapshotIdentifier: !If [RestoreFromRDSSnapshot, !Ref DBSnapshotId, !Ref "AWS::NoValue"]
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      Engine: postgres
+      EngineVersion: 9.5.2
+      MasterUsername: postgres
+      MasterUserPassword: !If [SetDBMasterUserPassword, !Ref DBMasterUserPassword, !Ref "AWS::NoValue"]
+      StorageType: !If [DBProvisionedIops, io1, gp2]
+      Iops: !If [DBProvisionedIops, !Ref DBIops, !Ref "AWS::NoValue"]
+      MultiAZ: !If [StandbyMode, !Ref "AWS::NoValue", !Ref DBMultiAZ]
+      VPCSecurityGroups: [!Ref SecurityGroup]
+      Tags:
+        - Key: Name
+          Value: Bitbucket PostgreSQL Database
+  DBSubnetGroup:
+    Type: "AWS::RDS::DBSubnetGroup"
+    Properties:
+      DBSubnetGroupDescription: DBSubnetGroup
+      DBSubnetGroupName: !Ref "AWS::StackName"
+      SubnetIds: !Ref InternalSubnets
+  LoadBalancer:
+    Type: "AWS::ElasticLoadBalancing::LoadBalancer"
+    Properties:
+      AppCookieStickinessPolicy:
+        - CookieName: !If [IsVersion4X, JSESSIONID, BITBUCKETSESSIONID]
+          PolicyName: SessionStickiness
+      ConnectionDrainingPolicy:
+        Enabled: true
+        Timeout: 300
+      ConnectionSettings:
+        IdleTimeout: 3600
+      CrossZone: true
+      LoadBalancerName: !Ref "AWS::StackName"
+      Listeners:
+        - LoadBalancerPort: 80
+          Protocol: HTTP
+          InstancePort: !If [SetupSSL, 7991, 7990]
+          InstanceProtocol: HTTP
+          PolicyNames: [SessionStickiness]
+        - !If
+            - SetupSSL
+            - LoadBalancerPort: 443
+              Protocol: HTTPS
+              InstancePort: 7990
+              InstanceProtocol: HTTP
+              PolicyNames:
+                - SessionStickiness
+              SSLCertificateId: !Sub
+                - "arn:aws:iam::${AccountId}:server-certificate/${SSLCertificateName}"
+                - AccountId: !Ref "AWS::AccountId"
+                  SSLCertificateName: !Ref SSLCertificateName
+            - !Ref AWS::NoValue
+        - LoadBalancerPort: 7999
+          Protocol: TCP
+          InstancePort: 7999
+          InstanceProtocol: TCP
+      HealthCheck:
+        Target: HTTP:7990/status
+        Timeout: 29
+        Interval: 30
+        UnhealthyThreshold: 2
+        HealthyThreshold: 2
+      Scheme: "internet-facing"
+      SecurityGroups: [!Ref SecurityGroup]
+      Subnets: !Ref ExternalSubnets
+  SecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties:
+      GroupDescription: Allows SSH and HTTP/HTTPS access
+      GroupName: !Ref "AWS::StackName"
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref CidrBlock
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref CidrBlock
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref CidrBlock
+        - IpProtocol: tcp
+          FromPort: 7999
+          ToPort: 7999
+          CidrIp: !Ref CidrBlock
+      Tags:
+      - Key: Name
+        Value: !Ref "AWS::StackName"
+  SecurityGroupIngress:
+    Type: "AWS::EC2::SecurityGroupIngress"
+    Properties:
+      GroupId: !Ref SecurityGroup
+      IpProtocol: "-1"
+      FromPort: "-1"
+      ToPort: "-1"
+      SourceSecurityGroupId: !Ref SecurityGroup
+Outputs:
+  ClusterNodeGroup:
+    Description: The name of the EC2 Auto Scaling Group for Bitbucket cluster nodes
+    Value: !Ref ClusterNodeGroup
+  FileServer:
+    Description: The public DNS name of the File Server node
+    Value: !GetAtt FileServer.PublicDnsName
+  URL:
+    Description: URL for Bitbucket Data Center via the ELB
+    Value: !Sub
+      - "${HTTP}://${LoadBalancerDNSName}"
+      - HTTP: !If [SetupSSL, "https", "http"]
+        LoadBalancerDNSName: !GetAtt LoadBalancer.DNSName
+  DBMaster:
+    Description: RDS ARN to use when creating a Bitbucket Data Center standby environment
+    Value: !If [NotStandbyMode, !Sub ["arn:aws:rds:${AWS::Region}:${AWS::AccountId}:db:${DB}", {DB: !Ref "DB"}], !Ref "AWS::NoValue"]
